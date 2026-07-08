@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newspaper Digitizer</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="masthead">
+  <h1>The Newspaper Digitizer</h1>
+  <p class="tagline">Turn a scanned newspaper into something you can talk to.</p>
+  <ol class="steps" id="steps">
+    <li data-step="upload" class="current"><span>1</span> Upload</li>
+    <li data-step="processing"><span>2</span> Process</li>
+    <li data-step="chat"><span>3</span> Chat</li>
+  </ol>
+</header>
+
+<main>
+
+  <!-- ============ STATE 1: UPLOAD ============ -->
+  <section id="view-upload" class="view">
+    <div id="dropzone" class="dropzone" tabindex="0">
+      <div class="dz-icon">📰</div>
+      <p class="dz-title">Drop a newspaper PDF here</p>
+      <p class="dz-sub">or</p>
+      <button id="btn-browse" class="btn primary" type="button">Choose a PDF</button>
+      <input id="file-input" type="file" accept=".pdf,application/pdf" hidden>
+    </div>
+    <div id="sample-offer" class="sample-offer" hidden>
+      <span>No PDF handy?</span>
+      <button id="btn-sample" class="btn ghost" type="button">Try the example newspaper</button>
+    </div>
+    <p id="upload-error" class="error-banner" hidden></p>
+  </section>
+
+  <!-- ============ STATE 2: PROCESSING ============ -->
+  <section id="view-processing" class="view" hidden>
+    <div class="process-card">
+      <ul class="stage-list">
+        <li id="stage-ocr"><i class="dot"></i> Scanning the pages <small>reading the print with OCR</small></li>
+        <li id="stage-segmenting"><i class="dot"></i> Separating the articles <small>a local AI finds where each story starts and ends</small></li>
+        <li id="stage-embedding"><i class="dot"></i> Preparing the chat <small>indexing the articles so you can ask about them</small></li>
+      </ul>
+      <p id="process-message" class="process-message">Starting…</p>
+      <p class="process-note">This runs entirely on this server — larger pages take a few minutes.</p>
+    </div>
+    <div id="process-error" class="error-card" hidden>
+      <p id="process-error-text"></p>
+      <button id="btn-retry" class="btn primary" type="button">Start over</button>
+    </div>
+  </section>
+
+  <!-- ============ STATE 3: CHAT ============ -->
+  <section id="view-chat" class="view" hidden>
+    <div class="chat-layout">
+      <aside class="article-panel">
+        <h2 id="article-count"></h2>
+        <ol id="article-list" class="article-list"></ol>
+        <button id="btn-newdoc" class="btn ghost small" type="button">↩ Process another PDF</button>
+      </aside>
+      <div class="chat-panel">
+        <div id="messages" class="messages"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" autocomplete="off"
+                 placeholder="Ask anything about these articles…">
+          <button id="btn-send" class="btn primary" type="submit">Send</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Runs 100% locally — OCR by Tesseract, language models by Ollama. Nothing leaves this server.</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

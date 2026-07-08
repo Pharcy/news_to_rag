@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime junk
+nohup.out
+*.log
+
+# Old OCR output data — not part of the showcase
+OCR_LIB/output_jsons/
+
+# Editor/OS
+.vscode/
+.DS_Store
