@@ -69,8 +69,16 @@ class Job:
                 "message": self.message,
                 "error": self.error,
                 "article_count": len(self.articles),
+                # Full content included so the UI can show each article's
+                # text on click; only sent once processing is finished
+                # (polling stops at "ready", so this isn't resent repeatedly).
                 "articles": [
-                    {"article_id": a["article_id"], "title": a["title"]}
+                    {
+                        "article_id": a["article_id"],
+                        "title": a["title"],
+                        "content": a["content"],
+                        "source_page": a.get("source_page"),
+                    }
                     for a in self.articles
                 ] if self.stage == "ready" else [],
             }

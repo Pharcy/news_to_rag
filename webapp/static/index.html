@@ -9,19 +9,21 @@
 <body>
 
 <header class="masthead">
-  <h1>The Newspaper Digitizer</h1>
-  <p class="tagline">Turn a scanned newspaper into something you can talk to.</p>
-  <ol class="steps" id="steps">
-    <li data-step="upload" class="current"><span>1</span> Upload</li>
-    <li data-step="processing"><span>2</span> Process</li>
-    <li data-step="chat"><span>3</span> Chat</li>
-  </ol>
+  <div class="masthead-row">
+    <h1>📰 The Newspaper Digitizer</h1>
+    <ol class="steps" id="steps">
+      <li data-step="upload" class="current"><span>1</span> Upload</li>
+      <li data-step="processing"><span>2</span> Process</li>
+      <li data-step="chat"><span>3</span> Chat</li>
+    </ol>
+  </div>
 </header>
 
 <main>
 
   <!-- ============ STATE 1: UPLOAD ============ -->
   <section id="view-upload" class="view">
+    <p class="intro">Turn a scanned newspaper into something you can talk to.</p>
     <div id="dropzone" class="dropzone" tabindex="0">
       <div class="dz-icon">📰</div>
       <p class="dz-title">Drop a newspaper PDF here</p>
@@ -53,28 +55,43 @@
     </div>
   </section>
 
-  <!-- ============ STATE 3: CHAT ============ -->
-  <section id="view-chat" class="view" hidden>
-    <div class="chat-layout">
-      <aside class="article-panel">
-        <h2 id="article-count"></h2>
-        <ol id="article-list" class="article-list"></ol>
-        <button id="btn-newdoc" class="btn ghost small" type="button">↩ Process another PDF</button>
-      </aside>
-      <div class="chat-panel">
-        <div id="messages" class="messages"></div>
-        <form id="chat-form" class="chat-form">
-          <input id="chat-input" type="text" autocomplete="off"
-                 placeholder="Ask anything about these articles…">
-          <button id="btn-send" class="btn primary" type="submit">Send</button>
-        </form>
-      </div>
-    </div>
-  </section>
-
 </main>
 
-<footer>Runs 100% locally — OCR by Tesseract, language models by Ollama. Nothing leaves this server.</footer>
+<footer id="page-footer">Runs 100% locally — OCR by Tesseract, language models by Ollama. Nothing leaves this server.</footer>
+
+<!-- ============ STATE 3: CHAT (full-screen: sidebar + chat) ============ -->
+<section id="view-chat" class="chat-screen" hidden>
+  <aside class="sidebar">
+    <div class="sidebar-brand">📰 Newspaper Digitizer</div>
+    <div class="sidebar-head">
+      <h2 id="article-count"></h2>
+      <p class="sidebar-hint">Click an article to read its full text.</p>
+    </div>
+    <ol id="article-list" class="article-list"></ol>
+    <div class="sidebar-foot">
+      <button id="btn-newdoc" class="btn ghost small" type="button">↩ Process another PDF</button>
+    </div>
+  </aside>
+
+  <div class="chat-main">
+    <div id="messages" class="messages"></div>
+    <form id="chat-form" class="chat-form">
+      <textarea id="chat-input" rows="3"
+                placeholder="Ask anything about these articles…  (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="btn-send" class="btn primary" type="submit">Send</button>
+    </form>
+  </div>
+</section>
+
+<!-- Article reader (opened by clicking an article or a source chip) -->
+<div id="article-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <button id="modal-close" class="modal-close" type="button" aria-label="Close">×</button>
+    <h3 id="modal-title"></h3>
+    <p id="modal-meta" class="modal-meta"></p>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

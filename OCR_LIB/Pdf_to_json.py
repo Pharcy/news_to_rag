@@ -41,7 +41,7 @@ def ocr_pdf(pdf_path, output_dir, progress_callback=None):
         print(f"Processing: {pdf_path}")
         
         # Convert PDF to images
-        images = convert_from_path(pdf_path, dpi=300)
+        images = convert_from_path(pdf_path, dpi=600)
         
         # Store results for all pages
         results = {

@@ -4,6 +4,25 @@
 const $ = (id) => document.getElementById(id);
 
 const views = { upload: $("view-upload"), processing: $("view-processing"), chat: $("view-chat") };
+
+// fetch + JSON with friendly errors: a proxy/tunnel can return empty or
+// non-JSON bodies (e.g. while the server restarts), which would otherwise
+// surface as a raw "Unexpected end of JSON input" to the user.
+async function fetchJSON(url, options) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch {
+    throw new Error("Couldn't reach the server. Please try again in a moment.");
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty or non-JSON body */ }
+  if (!res.ok || data === null) {
+    throw new Error((data && data.error) ||
+      "The server didn't respond properly. Please try again in a moment.");
+  }
+  return data;
+}
 let jobId = null;
 let pollTimer = null;
 let pollInFlight = false;   // don't stack overlapping status requests
@@ -62,9 +81,7 @@ async function uploadFile(file) {
   const form = new FormData();
   form.append("file", file);
   try {
-    const res = await fetch("/api/process", { method: "POST", body: form });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Upload failed.");
+    const data = await fetchJSON("/api/process", { method: "POST", body: form });
     beginProcessing(data.job_id);
   } catch (err) {
     showUploadError(err.message || "Could not upload the file. Please try again.");
@@ -77,8 +94,7 @@ async function uploadFile(file) {
 // Offer the example PDF only if the server actually has one installed.
 (async function initSample() {
   try {
-    const res = await fetch("/api/sample");
-    const data = await res.json();
+    const data = await fetchJSON("/api/sample");
     if (data.available) {
       $("sample-offer").hidden = false;
       $("btn-sample").addEventListener("click", async () => {
@@ -89,9 +105,7 @@ async function uploadFile(file) {
         btn.textContent = "Starting…";   // immediate feedback on click
         $("upload-error").hidden = true;
         try {
-          const r = await fetch("/api/process-sample", { method: "POST" });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || "Could not start the example.");
+          const d = await fetchJSON("/api/process-sample", { method: "POST" });
           beginProcessing(d.job_id);
         } catch (err) {
           showUploadError(err.message);
@@ -114,6 +128,7 @@ function beginProcessing(id) {
   jobId = id;
   jobFinished = false;
   pollInFlight = false;
+  pollFailures = 0;
   $("process-error").hidden = true;
   document.querySelector(".process-card").hidden = false;
   STAGE_ORDER.forEach((s) => $("stage-" + s).classList.remove("active", "done"));
@@ -123,18 +138,24 @@ function beginProcessing(id) {
   pollStatus();
 }
 
+let pollFailures = 0;
+
 async function pollStatus() {
   if (pollInFlight || jobFinished) return;
   pollInFlight = true;
   let status;
   try {
-    const res = await fetch(`/api/status/${jobId}`);
-    status = await res.json();
-    if (!res.ok) throw new Error(status.error || "Lost track of this job.");
+    status = await fetchJSON(`/api/status/${jobId}`);
+    pollFailures = 0;
   } catch (err) {
-    jobFinished = true;
-    stopPolling();
-    showProcessingError(err.message || "Lost the connection to the server.");
+    // Tolerate transient blips (tunnel hiccups, brief server pauses):
+    // only give up after several consecutive failures.
+    pollFailures += 1;
+    if (pollFailures >= 5) {
+      jobFinished = true;
+      stopPolling();
+      showProcessingError(err.message || "Lost the connection to the server.");
+    }
     return;
   } finally {
     pollInFlight = false;
@@ -185,14 +206,26 @@ function resetToUpload() {
 
 /* ---------- stage 3: chat ---------- */
 
+let articlesById = {};
+
 function enterChat(status) {
   const n = status.article_count;
   $("article-count").textContent = `${n} article${n === 1 ? "" : "s"} found`;
+  articlesById = {};
   const list = $("article-list");
   list.innerHTML = "";
   for (const a of status.articles) {
+    articlesById[a.article_id] = a;
     const li = document.createElement("li");
-    li.textContent = a.title;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const num = document.createElement("span");
+    num.className = "num";
+    num.textContent = a.article_id + ".";
+    btn.appendChild(num);
+    btn.appendChild(document.createTextNode(a.title));
+    btn.addEventListener("click", () => openArticle(a.article_id));
+    li.appendChild(btn);
     list.appendChild(li);
   }
   $("messages").innerHTML = "";   // idempotent: never stack duplicate welcomes
@@ -203,7 +236,31 @@ function enterChat(status) {
   $("chat-input").focus();
 }
 
-function addMessage(role, text) {
+/* --- article reader modal --- */
+
+function openArticle(id) {
+  const a = articlesById[id];
+  if (!a) return;
+  $("modal-title").textContent = a.title;
+  $("modal-meta").textContent =
+    `Article ${a.article_id}` + (a.source_page ? ` · from page ${a.source_page}` : "");
+  $("modal-body").textContent = a.content;
+  $("article-modal").hidden = false;
+}
+
+function closeArticle() { $("article-modal").hidden = true; }
+
+$("modal-close").addEventListener("click", closeArticle);
+$("article-modal").addEventListener("click", (e) => {
+  if (e.target === $("article-modal")) closeArticle();  // click on backdrop
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("article-modal").hidden) closeArticle();
+});
+
+/* --- messages --- */
+
+function addMessage(role, text, scrollToBottom = true) {
   const wrap = document.createElement("div");
   wrap.className = `msg ${role}`;
   const bubble = document.createElement("div");
@@ -211,11 +268,11 @@ function addMessage(role, text) {
   bubble.textContent = text;
   wrap.appendChild(bubble);
   $("messages").appendChild(wrap);
-  $("messages").scrollTop = $("messages").scrollHeight;
+  if (scrollToBottom) $("messages").scrollTop = $("messages").scrollHeight;
   return wrap;
 }
 
-const addBotMessage = (t) => addMessage("bot", t);
+const addBotMessage = (t, scroll = true) => addMessage("bot", t, scroll);
 
 function addSources(msgEl, sources) {
   if (!sources || !sources.length) return;
@@ -226,45 +283,63 @@ function addSources(msgEl, sources) {
   label.textContent = "Sources:";
   div.appendChild(label);
   for (const s of sources) {
-    const chip = document.createElement("span");
+    const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = "chip";
     chip.textContent = s.title;
-    chip.title = `Article ${s.article_id} — similarity ${s.score}`;
+    chip.title = `Article ${s.article_id} — similarity ${s.score}. Click to read.`;
+    chip.addEventListener("click", () => openArticle(s.article_id));
     div.appendChild(chip);
   }
   msgEl.appendChild(div);
-  $("messages").scrollTop = $("messages").scrollHeight;
 }
+
+const chatInput = $("chat-input");
+
+// Chatbot-style composer: Enter sends, Shift+Enter makes a new line,
+// and the box grows with the draft up to a cap.
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    $("chat-form").requestSubmit();
+  }
+});
+chatInput.addEventListener("input", () => {
+  chatInput.style.height = "auto";
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 224) + "px";
+});
 
 $("chat-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const input = $("chat-input");
-  const question = input.value.trim();
+  const question = chatInput.value.trim();
   if (!question || !jobId) return;
 
-  input.value = "";
-  input.disabled = true;
+  chatInput.value = "";
+  chatInput.style.height = "";
+  chatInput.disabled = true;
   $("btn-send").disabled = true;
   addMessage("user", question);
   const pending = addMessage("bot pending", "Reading the articles…");
 
   try {
-    const res = await fetch(`/api/chat/${jobId}`, {
+    const data = await fetchJSON(`/api/chat/${jobId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "The model didn't respond.");
     pending.remove();
-    const msgEl = addBotMessage(data.answer);
+    // Don't yank the view to the bottom: anchor the top of the answer where
+    // the pending bubble was, so the user reads from the start of the reply.
+    const msgEl = addBotMessage(data.answer, false);
     addSources(msgEl, data.sources);
+    const box = $("messages");
+    box.scrollTop = Math.max(0, msgEl.offsetTop - 16);
   } catch (err) {
     pending.remove();
     addMessage("error", err.message || "Something went wrong — please try again.");
   } finally {
-    input.disabled = false;
+    chatInput.disabled = false;
     $("btn-send").disabled = false;
-    input.focus();
+    chatInput.focus();
   }
 });
