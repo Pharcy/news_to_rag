@@ -3,6 +3,11 @@ import json
 import pytesseract
 from pdf2image import convert_from_path
 from PIL import Image
+
+# Broadsheet newspaper pages rasterized at 600 dpi easily exceed Pillow's
+# default ~179M-pixel decompression-bomb guard. This tool processes trusted
+# local scans, so allow larger images (0.5 gigapixel ≈ 24"x36" at 600 dpi).
+Image.MAX_IMAGE_PIXELS = 500_000_000
 import cv2
 import numpy as np
 from pathlib import Path
@@ -26,7 +31,7 @@ def preprocess_image(image):
     return denoised
 
 
-def ocr_pdf(pdf_path, output_dir, progress_callback=None):
+def ocr_pdf(pdf_path, output_dir, progress_callback=None, dpi=600):
     """
     Perform OCR on a PDF file and save results to JSON.
 
@@ -36,12 +41,14 @@ def ocr_pdf(pdf_path, output_dir, progress_callback=None):
         progress_callback: Optional callable(page_num, total_pages), invoked
             before each page is OCR'd so callers (e.g. the webapp) can report
             progress. Ignored when None, so CLI behaviour is unchanged.
+        dpi: Rasterization resolution. 600 gives the best OCR on small
+            newsprint; 300 is roughly 4x faster but may misread fine print.
     """
     try:
-        print(f"Processing: {pdf_path}")
-        
+        print(f"Processing: {pdf_path} ({dpi} dpi)")
+
         # Convert PDF to images
-        images = convert_from_path(pdf_path, dpi=600)
+        images = convert_from_path(pdf_path, dpi=dpi)
         
         # Store results for all pages
         results = {

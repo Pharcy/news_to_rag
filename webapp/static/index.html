@@ -30,10 +30,15 @@
       <p class="dz-sub">or</p>
       <button id="btn-browse" class="btn primary" type="button">Choose a PDF</button>
       <input id="file-input" type="file" accept=".pdf,application/pdf" hidden>
+      <label class="fast-toggle" for="fast-mode">
+        <input id="fast-mode" type="checkbox">
+        <span>⚡ Fast scan — about 4× quicker, but small or faded print may be read less accurately</span>
+      </label>
     </div>
     <div id="sample-offer" class="sample-offer" hidden>
       <span>No PDF handy?</span>
       <button id="btn-sample" class="btn ghost" type="button">Try the example newspaper</button>
+      <a id="btn-sample-view" class="btn ghost" href="/api/sample-pdf" target="_blank" rel="noopener">View the PDF ↗</a>
     </div>
     <p id="upload-error" class="error-banner" hidden></p>
   </section>

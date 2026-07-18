@@ -14,19 +14,29 @@ Endpoints:
 
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
-from pipeline import JOBS, start_job
+from pipeline import JOBS, prewarm_sample, start_job
 from rag import OllamaError
 
 app = FastAPI(title="Newspaper OCR + RAG showcase")
+
+
+@app.on_event("startup")
+def _prewarm_sample_cache():
+    """Build the sample's embeddings in the background at startup so the
+    'Try the example newspaper' button responds instantly."""
+    sample = _find_sample_pdf()
+    if sample is not None:
+        threading.Thread(target=prewarm_sample, args=(sample,), daemon=True).start()
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -52,11 +62,23 @@ def sample_info():
             "name": sample.name if sample else None}
 
 
+@app.get("/api/sample-pdf")
+def sample_pdf():
+    """Serve the example PDF inline so users can view (and save) it."""
+    sample = _find_sample_pdf()
+    if sample is None:
+        return JSONResponse(status_code=404, content={
+            "error": "No example PDF is installed on this server yet."})
+    return FileResponse(sample, media_type="application/pdf",
+                        filename=sample.name, content_disposition_type="inline")
+
+
 @app.post("/api/process")
-async def process_upload(file: UploadFile):
+async def process_upload(file: UploadFile, fast: str = Form("0")):
     if not (file.filename or "").lower().endswith(".pdf"):
         return JSONResponse(status_code=400, content={
             "error": "That doesn't look like a PDF. Please upload a .pdf file."})
+    fast_mode = fast.strip().lower() in ("1", "true", "on", "yes")
 
     # Copy the upload to a temp file the background thread can own; a plain
     # ASCII stem keeps ocr_pdf's <stem>.json output name predictable.
@@ -65,7 +87,7 @@ async def process_upload(file: UploadFile):
     with open(pdf_path, "wb") as out:
         shutil.copyfileobj(file.file, out)
 
-    job = start_job(pdf_path)
+    job = start_job(pdf_path, fast=fast_mode)
     return {"job_id": job.id}
 
 
@@ -75,7 +97,7 @@ def process_sample():
     if sample is None:
         return JSONResponse(status_code=404, content={
             "error": "No example PDF is installed on this server yet."})
-    job = start_job(sample)
+    job = start_job(sample, is_sample=True)
     return {"job_id": job.id}
 
 

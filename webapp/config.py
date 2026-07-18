@@ -22,6 +22,11 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 # How many articles to hand the chat model as context per question.
 TOP_K = int(os.environ.get("TOP_K", "3"))
 
+# OCR rasterization resolution. High quality is the default; "fast mode"
+# (user-selectable on the upload screen) trades accuracy for ~4x less work.
+OCR_DPI = int(os.environ.get("OCR_DPI", "600"))
+FAST_OCR_DPI = int(os.environ.get("FAST_OCR_DPI", "300"))
+
 # Directory holding the clickable example PDF (first *.pdf found is offered).
 SAMPLE_DIR = Path(__file__).parent / "sample"
 

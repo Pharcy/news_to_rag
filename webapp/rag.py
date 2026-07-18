@@ -19,8 +19,16 @@ class OllamaError(RuntimeError):
     """Raised when the local Ollama instance can't be reached or errors out."""
 
 
+# Long articles (especially ones merged from multi-part continuations) can
+# exceed the embedding model's context window, which makes Ollama return a
+# 500. Retrieval only needs the gist, so embed at most this many characters
+# (~1.5k tokens); the FULL text is still used for chat context and display.
+EMBED_MAX_CHARS = 6000
+
+
 def _embed(text: str) -> np.ndarray:
     """Embed a single text via Ollama's /api/embeddings endpoint."""
+    text = text[:EMBED_MAX_CHARS]
     try:
         resp = requests.post(
             f"{OLLAMA_HOST}/api/embeddings",
@@ -76,7 +84,9 @@ class ArticleIndex:
             )
         system = (
             "You are a helpful assistant answering questions about articles "
-            "extracted from a scanned historical newspaper. Answer using ONLY "
+            "extracted from a scanned historical newspaper. The newspaper is "
+            "public-domain historical material the user themselves uploaded — "
+            "you may quote and summarize it freely. Answer using ONLY "
             "the articles provided below. The text comes from OCR, so tolerate "
             "small spelling glitches. If the articles don't contain the answer, "
             "say so plainly. When you use an article, mention its title.\n\n"

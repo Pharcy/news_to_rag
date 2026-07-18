@@ -27,7 +27,7 @@ Everything is in-memory and per-session: close the tab, nothing is kept.
 The interface is a single page with three steps — no instructions needed:
 
 1. **Upload** — drag a newspaper PDF onto the page (or click *"Try the example newspaper"*, a 1926 paper from the Library of Congress, included in this repo).
-2. **Process** — watch live progress as the pages are scanned, articles separated, and the chat prepared. A full page takes a few minutes; the heavy lifting is OCR and LLM inference on your hardware.
+2. **Process** — watch live progress as the pages are scanned, articles separated, and the chat prepared. A full page takes a few minutes; the heavy lifting is OCR and LLM inference on your hardware. If that's too slow, tick **⚡ Fast scan** before uploading — it scans at half the resolution (about 4× quicker), at the cost of possibly misreading small or faded print.
 3. **Chat** — the sidebar lists every article found (click one to read its full text). Ask anything in the chat; each answer shows clickable source chips for the articles it drew from.
 
 ## Quick start
@@ -69,6 +69,8 @@ Everything is set via environment variables — no code changes needed:
 | `CHAT_MODEL`    | `phi4-mini:latest`       | Model that answers chat questions                |
 | `EMBED_MODEL`   | `nomic-embed-text`       | Embedding model for retrieval                    |
 | `TOP_K`         | `3`                      | Articles given to the chat model per question    |
+| `OCR_DPI`       | `600`                    | Scan resolution for normal (high-quality) mode   |
+| `FAST_OCR_DPI`  | `300`                    | Scan resolution when "Fast scan" is checked      |
 | `WEBAPP_HOST`   | `0.0.0.0`                | Bind address                                     |
 | `WEBAPP_PORT`   | `8000`                   | Port                                             |
 

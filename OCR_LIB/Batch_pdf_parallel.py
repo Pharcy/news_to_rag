@@ -222,41 +222,12 @@ class ParallelBatchProcessor:
     @staticmethod
     def merge_articles_by_title(articles: List[Dict]) -> List[Dict]:
         """
-        Merge articles that share the same title (case-insensitive, whitespace-normalised).
-        Content from later pages is appended; source page numbers are accumulated.
-        Articles are re-numbered sequentially after merging.
+        Merge continued articles across pages. Exact title matching proved too
+        brittle (continuation tags, OCR misreads, LLM re-wording), so this now
+        delegates to the shared fuzzy merger in article_seperate.py.
         """
-        import re
-
-        def normalize(title: str) -> str:
-            t = title.lower().strip()
-            return re.sub(r'\s+', ' ', t)
-
-        seen: Dict[str, int] = {}  # normalized title -> index in merged list
-        merged: List[Dict] = []
-
-        for article in articles:
-            key = normalize(article['title'])
-            if key in seen:
-                existing = merged[seen[key]]
-                # Append content separated by a blank line
-                existing['content'] = existing['content'].rstrip() + '\n\n' + article['content'].strip()
-                # Accumulate source pages
-                pages_list = existing.setdefault('source_pages', [existing.get('source_page')])
-                page = article.get('source_page')
-                if page not in pages_list:
-                    pages_list.append(page)
-            else:
-                copy = dict(article)
-                copy['source_pages'] = [article.get('source_page')]
-                seen[key] = len(merged)
-                merged.append(copy)
-
-        # Re-number after merging
-        for i, article in enumerate(merged, 1):
-            article['article_id'] = i
-
-        return merged
+        from article_seperate import merge_continued_articles
+        return merge_continued_articles(articles)
     
     def process_all(self):
         """Process all PDFs using parallel OCR and serial article extraction"""

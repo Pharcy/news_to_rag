@@ -2,6 +2,7 @@ import json
 import os
 import requests
 import re
+from difflib import SequenceMatcher
 
 # Ollama host is overridable via env var so this module works both on the CLI
 # and from the webapp without code changes. Default preserves old behaviour.
@@ -35,7 +36,15 @@ Here is the text to process:
     payload = {
         "model": model,
         "prompt": prompt,
-        "stream": False
+        "stream": False,
+        "options": {
+            # A full newspaper page of OCR text easily exceeds Ollama's
+            # default context window, which silently truncates the input and
+            # drops most of the articles. 16k covers a large page + output.
+            "num_ctx": 16384,
+            # Deterministic output: segmentation shouldn't vary between runs.
+            "temperature": 0,
+        },
     }
     
     try:
@@ -90,6 +99,108 @@ def parse_articles(llm_response, source_metadata):
         })
     
     return parsed_articles
+
+# ---------------------------------------------------------------------------
+# Merging continued articles
+#
+# Newspaper stories often run "SMITH WINS ELECTION" on page 1 and reappear as
+# "Smith Wins Election (Continued from Page 8)" later. Exact title matching
+# can't reunite them: continuation tags, OCR misreads, and LLM re-wording all
+# make the titles differ. This merger therefore combines three signals:
+#   1. titles are normalised (continuation tags stripped, case/punctuation
+#      folded) before comparison,
+#   2. similarity is fuzzy (difflib ratio) rather than exact, and
+#   3. an explicit "(continued …)" marker in the title or opening text lowers
+#      the similarity bar and requires merging backward into an earlier page.
+# ---------------------------------------------------------------------------
+
+_CONTINUATION_RE = re.compile(
+    r"[\(\[]?\s*(?:continued|cont'?d|cont\.)\s*(?:from|on)?\s*"
+    r"(?:page\s*\d+|p\.?\s*\d+)?\s*[\)\]]?",
+    re.IGNORECASE,
+)
+
+
+def _strip_continuation(title):
+    """Remove '(continued from page N)'-style tags and tidy the remains."""
+    cleaned = _CONTINUATION_RE.sub(" ", title)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—:,.")
+    return cleaned
+
+
+def _normalize_title(title):
+    """Fold a title down to lowercase alphanumerics for comparison."""
+    t = _strip_continuation(title).lower()
+    t = re.sub(r"[^a-z0-9 ]+", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _is_continuation(article):
+    """True if the title or the opening of the content carries a
+    continuation marker."""
+    if _CONTINUATION_RE.search(article.get("title", "")):
+        return True
+    head = article.get("content", "")[:200]
+    return bool(re.search(r"continued\s+from", head, re.IGNORECASE))
+
+
+def merge_continued_articles(articles, fuzzy_threshold=0.75,
+                             continued_threshold=0.5):
+    """
+    Merge multi-page continuations into their parent articles.
+
+    `articles` must be in reading order (page, then position). Each candidate
+    is compared against every already-merged article:
+      - identical normalised titles always merge (old exact behaviour);
+      - otherwise a fuzzy match needs `fuzzy_threshold` similarity, a
+        reasonably long title, and a *different* source page;
+      - articles explicitly marked "(continued)" merge at the lower
+        `continued_threshold`, but only into an article from an earlier page.
+    Unmatched articles are kept as-is (with any continuation tag stripped
+    from their title). Article IDs are renumbered sequentially.
+    """
+    merged = []
+
+    for art in articles:
+        key = _normalize_title(art.get("title", ""))
+        is_cont = _is_continuation(art)
+        page = art.get("source_page")
+
+        best, best_score = None, 0.0
+        for prev in merged:
+            score = SequenceMatcher(None, key, prev["_key"]).ratio() if key else 0.0
+            if score <= best_score:
+                continue
+            same_page = page is not None and page in prev["source_pages"]
+            if score >= 1.0 and prev["_key"]:
+                best, best_score = prev, score        # exact: always eligible
+            elif is_cont and not same_page and score >= continued_threshold:
+                best, best_score = prev, score        # marked continuation
+            elif not same_page and len(key) >= 8 and score >= fuzzy_threshold:
+                best, best_score = prev, score        # fuzzy cross-page match
+        # A marked continuation must flow backward: never merge into an
+        # article that only exists on the same or a later page.
+        if best is not None and is_cont and page is not None:
+            if not any(p is not None and p < page for p in best["source_pages"]) \
+               and page not in best["source_pages"]:
+                best = None
+
+        if best is not None:
+            best["content"] = best["content"].rstrip() + "\n\n" + art["content"].strip()
+            if page is not None and page not in best["source_pages"]:
+                best["source_pages"].append(page)
+        else:
+            copy = dict(art)
+            copy["title"] = _strip_continuation(art.get("title", "")) or art.get("title", "")
+            copy["_key"] = key
+            copy["source_pages"] = [page] if page is not None else []
+            merged.append(copy)
+
+    for i, art in enumerate(merged, 1):
+        art["article_id"] = i
+        art.pop("_key", None)
+    return merged
+
 
 def extract_text_from_json(data):
     """

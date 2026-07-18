@@ -80,6 +80,8 @@ async function uploadFile(file) {
   startingJob = true;
   const form = new FormData();
   form.append("file", file);
+  // Fast scan: lower-resolution OCR, quicker but potentially less accurate.
+  form.append("fast", $("fast-mode").checked ? "1" : "0");
   try {
     const data = await fetchJSON("/api/process", { method: "POST", body: form });
     beginProcessing(data.job_id);
