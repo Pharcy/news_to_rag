@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
-from pipeline import JOBS, prewarm_sample, start_job
+from pipeline import JOBS, active_job_count, prewarm_sample, start_job
 from rag import OllamaError
 
 app = FastAPI(title="Newspaper OCR + RAG showcase")
@@ -79,13 +79,27 @@ async def process_upload(file: UploadFile, fast: str = Form("0")):
         return JSONResponse(status_code=400, content={
             "error": "That doesn't look like a PDF. Please upload a .pdf file."})
     fast_mode = fast.strip().lower() in ("1", "true", "on", "yes")
+    if active_job_count() >= config.MAX_ACTIVE_JOBS:
+        return JSONResponse(status_code=429, content={
+            "error": "The server is busy processing other documents. "
+                     "Please try again in a few minutes."})
 
     # Copy the upload to a temp file the background thread can own; a plain
-    # ASCII stem keeps ocr_pdf's <stem>.json output name predictable.
+    # ASCII stem keeps ocr_pdf's <stem>.json output name predictable. The
+    # copy is size-capped so an oversized upload can't fill the disk.
+    max_bytes = config.MAX_UPLOAD_MB * 1024 * 1024
     tmpdir = Path(tempfile.mkdtemp(prefix="newsrag_upload_"))
     pdf_path = tmpdir / "upload.pdf"
+    received = 0
     with open(pdf_path, "wb") as out:
-        shutil.copyfileobj(file.file, out)
+        while chunk := await file.read(1024 * 1024):
+            received += len(chunk)
+            if received > max_bytes:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                return JSONResponse(status_code=413, content={
+                    "error": f"That file is too large. The limit is "
+                             f"{config.MAX_UPLOAD_MB} MB."})
+            out.write(chunk)
 
     job = start_job(pdf_path, fast=fast_mode)
     return {"job_id": job.id}
@@ -97,6 +111,10 @@ def process_sample():
     if sample is None:
         return JSONResponse(status_code=404, content={
             "error": "No example PDF is installed on this server yet."})
+    if active_job_count() >= config.MAX_ACTIVE_JOBS:
+        return JSONResponse(status_code=429, content={
+            "error": "The server is busy processing other documents. "
+                     "Please try again in a few minutes."})
     job = start_job(sample, is_sample=True)
     return {"job_id": job.id}
 
@@ -125,6 +143,10 @@ def chat(job_id: str, req: ChatRequest):
     question = req.question.strip()
     if not question:
         return JSONResponse(status_code=400, content={"error": "Please type a question."})
+    if len(question) > config.MAX_QUESTION_CHARS:
+        return JSONResponse(status_code=400, content={
+            "error": f"That question is too long — please keep it under "
+                     f"{config.MAX_QUESTION_CHARS} characters."})
 
     try:
         result = job.index.answer(question, job.chat_history)
@@ -133,9 +155,11 @@ def chat(job_id: str, req: ChatRequest):
         return JSONResponse(status_code=502, content={
             "error": "The language model didn't respond. Please try again in a moment."})
 
-    # Remember the exchange so follow-up questions have context.
+    # Remember the exchange so follow-up questions have context. The stored
+    # history is bounded so a long-lived chat can't grow memory forever.
     job.chat_history.append({"role": "user", "content": question})
     job.chat_history.append({"role": "assistant", "content": result["answer"]})
+    del job.chat_history[:-config.MAX_CHAT_HISTORY]
     return result
 
 

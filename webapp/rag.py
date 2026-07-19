@@ -52,19 +52,27 @@ class ArticleIndex:
     def __init__(self, articles: list[dict]):
         # `articles` are the dicts produced by article_seperate.parse_articles:
         # keys include article_id, title, content, source_page.
+        if not articles:
+            raise ValueError("ArticleIndex needs at least one article.")
         self.articles = articles
         vectors = []
         for art in articles:
             # Embed title + content together so headline words are searchable.
-            vectors.append(_embed(f"{art['title']}\n\n{art['content']}"))
+            vectors.append(_embed(f"{art.get('title', '')}\n\n{art.get('content', '')}"))
         matrix = np.vstack(vectors)
-        # Pre-normalise rows so retrieval is a single dot product.
-        self._matrix = matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
+        # Pre-normalise rows so retrieval is a single dot product. A zero
+        # vector (degenerate embedding) is left unnormalised rather than
+        # poisoning every score with NaN.
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        self._matrix = matrix / norms
 
     def retrieve(self, question: str, k: int = TOP_K) -> list[tuple[dict, float]]:
         """Return the top-k (article, cosine_similarity) pairs for a question."""
         q = _embed(question)
-        q = q / np.linalg.norm(q)
+        q_norm = np.linalg.norm(q)
+        if q_norm:
+            q = q / q_norm
         scores = self._matrix @ q
         order = np.argsort(scores)[::-1][:k]
         return [(self.articles[i], float(scores[i])) for i in order]

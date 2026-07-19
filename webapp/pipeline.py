@@ -22,6 +22,7 @@ polls /api/status for the fields updated here. Jobs live only in memory.
 """
 
 import json
+import shutil
 import sys
 import tempfile
 import threading
@@ -160,9 +161,25 @@ class Job:
 JOBS: dict[str, Job] = {}
 
 
+def active_job_count() -> int:
+    """Jobs still being processed — used to refuse new uploads when busy."""
+    return sum(1 for j in JOBS.values() if j.stage not in ("ready", "error"))
+
+
+def _evict_finished_jobs():
+    """Keep JOBS bounded: drop the oldest finished jobs past MAX_KEPT_JOBS."""
+    excess = len(JOBS) - config.MAX_KEPT_JOBS
+    if excess <= 0:
+        return
+    finished = [jid for jid, j in JOBS.items() if j.stage in ("ready", "error")]
+    for jid in finished[:excess]:
+        JOBS.pop(jid, None)
+
+
 def start_job(pdf_path: Path, is_sample: bool = False, fast: bool = False) -> Job:
     """Create a Job for pdf_path and process it on a background thread.
     `fast` scans at the lower FAST_OCR_DPI (quicker, possibly worse OCR)."""
+    _evict_finished_jobs()
     job = Job()
     JOBS[job.id] = job
     threading.Thread(target=_run, args=(job, pdf_path, is_sample, fast),
@@ -198,6 +215,12 @@ def _run(job: Job, pdf_path: Path, is_sample: bool = False, fast: bool = False):
         print(f"[job {job.id}] unexpected failure: {e!r}")
         job.set(error="Something went wrong while processing this file. "
                       "Please check it is a valid PDF and try again.")
+    finally:
+        # Uploaded PDFs live in their own temp dir (created by the upload
+        # endpoint); remove it so repeated uploads can't fill the disk.
+        # Sample runs point at the real bundled PDF, which must stay.
+        if not is_sample:
+            shutil.rmtree(pdf_path.parent, ignore_errors=True)
 
 
 def _process(job: Job, pdf_path: Path, fast: bool = False):
@@ -206,7 +229,14 @@ def _process(job: Job, pdf_path: Path, fast: bool = False):
     mode = " (fast mode)" if fast else ""
     job.set(stage="ocr", message=f"Scanning PDF{mode}…")
     workdir = Path(tempfile.mkdtemp(prefix=f"newsrag_{job.id}_"))
+    try:
+        _process_in_workdir(job, pdf_path, workdir, mode, dpi)
+    finally:
+        # The OCR JSON is only an intermediate — never leave it behind.
+        shutil.rmtree(workdir, ignore_errors=True)
 
+
+def _process_in_workdir(job: Job, pdf_path: Path, workdir: Path, mode: str, dpi: int):
     def on_page(page_num, total):
         job.set(message=f"Scanning PDF{mode} — reading page {page_num} of {total}…")
 

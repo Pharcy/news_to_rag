@@ -33,3 +33,15 @@ SAMPLE_DIR = Path(__file__).parent / "sample"
 # Server bind settings.
 HOST = os.environ.get("WEBAPP_HOST", "0.0.0.0")
 PORT = int(os.environ.get("WEBAPP_PORT", "8000"))
+
+# ---- Abuse guards -------------------------------------------------------
+# Largest PDF upload accepted (a broadsheet scan is typically well under this).
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
+# Longest chat question accepted.
+MAX_QUESTION_CHARS = int(os.environ.get("MAX_QUESTION_CHARS", "2000"))
+# How many uploads may be OCR'd/segmented at once before new ones get a 429.
+MAX_ACTIVE_JOBS = int(os.environ.get("MAX_ACTIVE_JOBS", "3"))
+# Total jobs kept in memory; oldest finished jobs are evicted past this.
+MAX_KEPT_JOBS = int(os.environ.get("MAX_KEPT_JOBS", "50"))
+# Chat messages remembered per job (user + assistant turns combined).
+MAX_CHAT_HISTORY = int(os.environ.get("MAX_CHAT_HISTORY", "20"))
